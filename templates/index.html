@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Water Analyzer - Water Consumption Prediction & Recommendation System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <!-- Global Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <header class="top">
+    <div class="wrap top-inner">
+      <nav class="nav">
+        <a href="/" class="on">Analyzer</a>
+        <a href="/model">Model insights</a>
+      </nav>
+      <div class="badge-pill">Decision Support System &bull; ML Powered</div>
+      <h1>Smart Water Analyzer</h1>
+      <p>Analyze household water consumption with Linear Regression and CART decision trees. Identify high-usage areas, get rule-based recommendations, and earn conservation rewards.</p>
+    </div>
+  </header>
+
+  <main class="wrap layout">
+
+    <!-- LEFT COLUMN: INPUTS & CONTROLS -->
+    <div class="dash-col-left">
+      <section class="panel input-panel" aria-labelledby="log-heading">
+        <div class="panel-header-badge">
+          <h2 id="log-heading">Log Household Usage</h2>
+          <span class="tag tag-teal">Daily Audit</span>
+        </div>
+
+        <form id="usage-form" novalidate>
+          <div class="field name-field">
+            <label for="username">
+              <span>Your Name / Household ID</span>
+              <small class="field-hint">Points & history will be saved to your profile</small>
+            </label>
+            <input type="text" id="username" maxlength="20" placeholder="e.g., Asha or House-4B" autocomplete="nickname" required>
+          </div>
+
+          <!-- Quick Scenario Presets -->
+          <div class="presets-row">
+            <span class="presets-label">Quick Presets:</span>
+            <div class="presets-btns">
+              <button type="button" class="btn-preset" data-preset="eco" title="Conserving usage pattern">Eco Saver</button>
+              <button type="button" class="btn-preset" data-preset="avg" title="Typical household averages">Average</button>
+              <button type="button" class="btn-preset" data-preset="high" title="Excessive consumption pattern">High Usage</button>
+            </div>
+          </div>
+
+          <!-- Activity Inputs -->
+          <div class="activity-sliders">
+            {% for key, label, max, icon in [
+              ('bathroom', 'Bathroom', 350, '🚿'),
+              ('kitchen', 'Kitchen', 250, '🍳'),
+              ('laundry', 'Laundry', 250, '👕'),
+              ('gardening', 'Gardening', 350, '🌱')
+            ] %}
+            <div class="slider-card">
+              <div class="slider-head">
+                <label for="{{ key }}-num">
+                  <span class="activity-icon">{{ icon }}</span>
+                  <span class="activity-name">{{ label }}</span>
+                </label>
+                <div class="num-wrap">
+                  <input type="number" id="{{ key }}-num" min="0" max="5000" step="1" value="{{ avg[label]|round|int }}" inputmode="numeric">
+                  <em>L</em>
+                </div>
+              </div>
+              <input type="range" id="{{ key }}" min="0" max="{{ max }}" step="1" value="{{ avg[label]|round|int }}" aria-label="{{ label }} in litres">
+              <div class="slider-meta">
+                <span class="avg-hint">Avg: {{ avg[label]|round|int }} L</span>
+                <span class="slider-pct" id="{{ key }}-status">Average</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          <!-- Live Input Sum -->
+          <div class="sum-card">
+            <div class="sum-text">
+              <span>Total Activity Input</span>
+              <small>Sum of 4 categories</small>
+            </div>
+            <strong id="sum-live">0 L</strong>
+          </div>
+
+          <p class="error" id="form-error" role="alert" hidden></p>
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            <span class="btn-text">Run ML Prediction & Analysis</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+          <p class="note">One reward entry per user per day. Re-logging on the same date safely updates your numbers without duplicating streak points.</p>
+        </form>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN: RESULTS & RECOMMENDATIONS -->
+    <div class="dash-col-right">
+
+      <!-- PREDICTION & STATUS RESULT CARD -->
+      <section class="panel result-panel" id="main-result-panel" aria-live="polite">
+        <div class="tank-col">
+          <svg id="tank" viewBox="0 0 170 270" role="img" aria-label="Water tank showing predicted consumption">
+            <defs>
+              <clipPath id="tank-clip">
+                <rect x="25" y="20" width="120" height="230" rx="12"/>
+              </clipPath>
+              <linearGradient id="tank-glass" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6"/>
+                <stop offset="15%" stop-color="#ffffff" stop-opacity="0.05"/>
+                <stop offset="85%" stop-color="#ffffff" stop-opacity="0.05"/>
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.4"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Tank Background & Scale Ticks -->
+            <rect x="25" y="20" width="120" height="230" rx="12" class="tank-bg"/>
+            <line x1="25" x2="33" y1="77" y2="77" class="tank-tick"/>
+            <line x1="25" x2="33" y1="135" y2="135" class="tank-tick"/>
+            <line x1="25" x2="33" y1="192" y2="192" class="tank-tick"/>
+            <text x="18" y="80" class="tick-label">75%</text>
+            <text x="18" y="138" class="tick-label">50%</text>
+            <text x="18" y="195" class="tick-label">25%</text>
+
+            <!-- Dynamic Water Fill -->
+            <g clip-path="url(#tank-clip)">
+              <rect id="water" x="25" y="250" width="120" height="0" class="water"/>
+              <path id="wave" class="wave" d="M 25 250 q 15 -6 30 0 t 30 0 t 30 0 t 30 0 t 30 0 V 270 H 25 Z"/>
+            </g>
+
+            <!-- Glass Reflection & Outline -->
+            <rect x="25" y="20" width="120" height="230" rx="12" fill="url(#tank-glass)"/>
+            <rect x="25" y="20" width="120" height="230" rx="12" class="tank-outline"/>
+
+            <!-- Benchmark Line -->
+            <line id="bench-line" x1="20" x2="150" y1="160" y2="160" class="bench-marker"/>
+            <text id="bench-label" x="146" y="154" text-anchor="end" class="marker-text bench-text">Benchmark {{ benchmark|round|int }} L</text>
+
+            <!-- Target Line (dynamically positioned) -->
+            <line id="target-line" x1="20" x2="150" y1="250" y2="250" class="target-line" style="display:none;"/>
+            <text id="target-label" x="146" y="243" text-anchor="end" class="marker-text target-text" style="display:none;">Target</text>
+          </svg>
+        </div>
+
+        <div class="summary-col">
+          <!-- Initial Placeholder State -->
+          <div id="empty-state" class="empty">
+            <div class="empty-icon">💧</div>
+            <h2>Ready to Analyze</h2>
+            <p>Adjust the activity values on the left and click <b>Run ML Prediction & Analysis</b> to see predicted total volume, CART classification, and customized reduction tips.</p>
+            <div class="empty-stats">
+              <span>Benchmark: <b>{{ benchmark|round|int }} L</b></span>
+              <span>Average: <b>{{ avg_total|round|int }} L</b></span>
+            </div>
+          </div>
+
+          <!-- Populated Result State -->
+          <div id="result" hidden>
+            <div class="result-header">
+              <span class="pred-label">Linear Regression Prediction</span>
+              <div class="big-line">
+                <span class="big" id="pred-val">0</span>
+                <span class="unit">L total predicted</span>
+              </div>
+            </div>
+
+            <div class="chips">
+              <span class="chip level" id="level-chip">Medium usage</span>
+              <span class="chip plain" id="top-chip">Highest: Bathroom</span>
+            </div>
+
+            <p class="advice" id="advice"></p>
+
+            <dl class="facts">
+              <div class="fact-tile">
+                <dt>Entered Total</dt>
+                <dd id="actual-val">0 L</dd>
+              </div>
+              <div class="fact-tile">
+                <dt>Recommended Limit</dt>
+                <dd id="limit-val">0 L</dd>
+              </div>
+              <div class="fact-tile">
+                <dt>Efficient Benchmark</dt>
+                <dd id="bench-val">0 L</dd>
+              </div>
+              <div class="fact-tile waste">
+                <dt>Daily Wastage</dt>
+                <dd id="waste-val">0 L</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- WHERE THE WATER GOES (BREAKDOWN) -->
+      <section class="panel" id="breakdown-panel" hidden>
+        <div class="panel-header-badge">
+          <h2>Where the Water Goes</h2>
+          <span class="tag tag-teal">Activity Audit</span>
+        </div>
+        <p class="panel-desc">Comparison of your household's entered usage against the dataset benchmarks:</p>
+        <div id="bars" class="bars"></div>
+        <p class="legend"><i class="dot you"></i>Your usage <i class="dot avg"></i>Household average marker</p>
+      </section>
+
+      <!-- HOW TO USE LESS (TIPS) -->
+      <section class="panel" id="tips-panel" hidden>
+        <div class="panel-header-badge">
+          <h2>How to Use Less</h2>
+          <span class="tag tag-amber">Rule-Based Tips</span>
+        </div>
+        <ul id="tips" class="tips"></ul>
+      </section>
+
+      <!-- WATER SAVER REWARDS -->
+      <section class="panel rewards" id="rewards-panel" hidden>
+        <div class="panel-header-badge">
+          <h2>Water Saver Rewards</h2>
+          <span class="tag tag-emerald">Gamification</span>
+        </div>
+        <div class="points-line">
+          <span class="big small" id="pts-earned">+0</span>
+          <span class="unit">points earned today</span>
+        </div>
+        <ul class="reward-lines" id="reward-lines"></ul>
+        <p class="reward-detail" id="reward-detail"></p>
+        <div class="badge-row">
+          <div class="points-total-box">
+            <span>Cumulative Score:</span>
+            <b id="pts-total">0</b> points
+          </div>
+          <span class="badge" id="badge">Beginner</span>
+        </div>
+      </section>
+
+    </div><!-- End right col -->
+
+    <!-- FULL WIDTH SECTION: PROGRESS & LEADERBOARD -->
+    <div class="dash-full-section">
+
+      <!-- MY PROGRESS -->
+      <section class="panel progress" id="progress-panel" hidden>
+        <div class="panel-header-badge">
+          <h2>My Conservation Progress</h2>
+          <span class="tag tag-teal">Analytics History</span>
+        </div>
+
+        <div class="progress-grid">
+          <!-- Trend Chart -->
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>Daily Consumption (Last 30 Entries)</h3>
+              <div class="chart-legend-inline">
+                <span><i class="dot ok"></i>No Wastage</span>
+                <span><i class="dot bad"></i>Wastage</span>
+                <span><i class="line-key bench"></i>Benchmark</span>
+                <span><i class="line-key goal"></i>Goal</span>
+              </div>
+            </div>
+            <div id="history-chart" class="history-chart-wrap"></div>
+          </div>
+
+          <!-- Side Cards: Month Projections & Goal -->
+          <div class="side-cards">
+            <!-- Monthly Billing -->
+            <div class="mini">
+              <h3>Monthly Consumption &amp; Bill Estimate</h3>
+              <dl class="mini-facts" id="month-facts">
+                <p class="muted">Log an entry to calculate your monthly projection.</p>
+              </dl>
+              <div class="rate-row">
+                <label>
+                  Rate per 1,000 L
+                  <input type="number" id="rate" min="0" step="0.1" value="5">
+                </label>
+                <label>
+                  Symbol
+                  <input type="text" id="sym" maxlength="3" value="$">
+                </label>
+              </div>
+              <p class="bill" id="bill-line"></p>
+            </div>
+
+            <!-- Daily Goal Card -->
+            <div class="mini">
+              <h3>Daily Water Goal</h3>
+              <div class="goal-row">
+                <input type="number" id="goal-input" min="0" max="5000" placeholder="e.g. {{ benchmark|round|int }}" aria-label="Daily goal in litres">
+                <span>L/day</span>
+                <button type="button" class="btn btn-secondary small" id="goal-btn">Set Goal</button>
+              </div>
+              <div class="track goal-track">
+                <div class="fill" id="goal-fill"></div>
+              </div>
+              <p class="muted goal-text" id="goal-text">Set a personal goal to earn +10 bonus points on days you maintain lower consumption.</p>
+              <p class="error" id="goal-error" hidden></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- COMMUNITY LEADERBOARD -->
+      <section class="panel leaders">
+        <div class="board-head">
+          <div>
+            <h2>Water Saver Leaderboard</h2>
+            <p class="panel-subtitle">Celebrate community members saving water and earning conservation points.</p>
+          </div>
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab on" data-period="all">All Time</button>
+            <button type="button" class="tab" data-period="week">This Week</button>
+            <button type="button" class="tab" data-period="month">This Month</button>
+          </div>
+        </div>
+        <ol id="board" class="board">
+          <li class="muted">Loading leaderboard data...</li>
+        </ol>
+      </section>
+
+    </div><!-- End full width section -->
+
+  </main>
+
+  <footer class="wrap foot">
+    <div class="foot-inner">
+      <p>Linear Regression predicts total consumption &bull; CART evaluates pattern &bull; Rule-based system guides reduction.</p>
+      <a href="/model" class="foot-link">View Machine Learning Model Insights &rarr;</a>
+    </div>
+  </footer>
+
+  <script>
+    window.WATER = {
+      avg: {{ avg | tojson }},
+      avgTotal: {{ avg_total }},
+      benchmark: {{ benchmark }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

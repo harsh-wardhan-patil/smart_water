@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model Insights & Analytics - Smart Water Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <nav class="nav">
+        <a href="/">Analyzer</a>
+        <a href="/model" class="on">Model insights</a>
+      </nav>
+      <div class="badge-pill">Machine Learning Architecture</div>
+      <h1>Model Insights & Validation</h1>
+      <p>Dual-model architecture: Linear Regression predicts expected consumption, while CART analyzes usage patterns to classify efficiency levels.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Quick Stats Bar -->
+    <div class="stats-ribbon">
+      <div class="stat-box">
+        <span class="stat-label">Total Dataset Size</span>
+        <span class="stat-value">{{ info.rows }} <small>records</small></span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Test Split (20%)</span>
+        <span class="stat-value">{{ info.test_rows }} <small>held-out samples</small></span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Dataset Avg Total</span>
+        <span class="stat-value">{{ info.avg_total }} <small>L / day</small></span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Benchmark (33rd %ile)</span>
+        <span class="stat-value text-emerald">{{ info.benchmark }} <small>L / day</small></span>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <!-- 1. Linear Regression Model -->
+      <section class="panel">
+        <div class="panel-header-badge">
+          <h2>1. Linear Regression Model</h2>
+          <span class="tag tag-blue">Continuous Prediction</span>
+        </div>
+        <p class="panel-desc">Calculates expected total daily household consumption based on the four core activity variables: Bathroom, Kitchen, Laundry, and Gardening.</p>
+
+        <div class="facts">
+          <div class="fact-card good">
+            <dt>R² Score (Variance Explained)</dt>
+            <dd>{{ (info.linear.r2 * 100)|round(1) }}%</dd>
+            <span class="subtext">R² = {{ info.linear.r2 }} (Held-out test set)</span>
+          </div>
+          <div class="fact-card">
+            <dt>Mean Absolute Error (MAE)</dt>
+            <dd>{{ info.linear.mae }} <small>L</small></dd>
+            <span class="subtext">Average deviation per prediction</span>
+          </div>
+          <div class="fact-card">
+            <dt>Intercept (\(\beta_0\))</dt>
+            <dd>{{ info.linear.intercept }}</dd>
+            <span class="subtext">Baseline adjustment constant</span>
+          </div>
+        </div>
+
+        <h3>Trained Regression Equation</h3>
+        <div class="eq">
+          <code>Total = {{ info.linear.intercept }}
+            {% for feature, coef in info.linear.coefs.items() %}
+              + ({{ coef }} &times; {{ feature }})
+            {% endfor %}
+          </code>
+        </div>
+
+        <h3>Feature Coefficients & Weights</h3>
+        <div class="coef-list">
+          {% for feature, coef in info.linear.coefs.items() %}
+          <div class="coef-row">
+            <div class="coef-info">
+              <strong>{{ feature }}</strong>
+              <span class="coef-weight">&beta; = {{ coef }}</span>
+            </div>
+            <div class="track">
+              <div class="fill" style="width: {{ (coef / 1.1) * 100 }}%;"></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <p class="small-note">Each litre of water consumed in any area adds approximately 1.0 litre to the predicted total consumption.</p>
+      </section>
+
+      <!-- 2. CART Classification Tree -->
+      <section class="panel">
+        <div class="panel-header-badge">
+          <h2>2. CART Classification Model</h2>
+          <span class="tag tag-amber">Pattern Recognition</span>
+        </div>
+        <p class="panel-desc">A Classification and Regression Tree analyzes consumption patterns and segments usage into Low, Medium, and High consumption bands.</p>
+
+        <div class="facts">
+          <div class="fact-card good">
+            <dt>Test Accuracy</dt>
+            <dd>{{ (info.cart.accuracy * 100)|round(1) }}%</dd>
+            <span class="subtext">Multi-class stratified accuracy</span>
+          </div>
+          <div class="fact-card">
+            <dt>Tree Depth</dt>
+            <dd>{{ info.cart.depth }}</dd>
+            <span class="subtext">Maximum decision levels</span>
+          </div>
+          <div class="fact-card">
+            <dt>Leaf Nodes</dt>
+            <dd>{{ info.cart.leaves }}</dd>
+            <span class="subtext">Distinct pattern decision leaves</span>
+          </div>
+        </div>
+
+        <h3>Confusion Matrix (Test Evaluation)</h3>
+        <div class="cm-wrap">
+          <table class="cm">
+            <thead>
+              <tr>
+                <th>Actual \ Predicted</th>
+                {% for label in info.cart.labels %}
+                <th>{{ label }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for i in range(info.cart.labels|length) %}
+              <tr>
+                <th>{{ info.cart.labels[i] }}</th>
+                {% for j in range(info.cart.labels|length) %}
+                <td class="{% if i == j %}diag{% endif %}">{{ info.cart.matrix[i][j] }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="small-note">Diagonal cells indicate correct classifications across the test set.</p>
+
+        <h3>Feature Importance (Gini Impurity)</h3>
+        <div class="coef-list">
+          {% for feature, imp in info.cart.importance.items() %}
+          <div class="coef-row">
+            <div class="coef-info">
+              <strong>{{ feature }}</strong>
+              <span class="coef-weight">{{ (imp * 100)|round(1) }}%</span>
+            </div>
+            <div class="track">
+              <div class="fill" style="width: {{ imp * 100 * 1.8 }}%;"></div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <!-- 3. Decision Rules Explorer -->
+      <section class="panel full-width">
+        <div class="panel-header-badge">
+          <h2>CART Decision Tree Rules (Top Branches)</h2>
+          <span class="tag tag-teal">Transparent Logic</span>
+        </div>
+        <p class="panel-desc">The decision boundaries learned by the CART algorithm to classify households into Low, Medium, or High consumption patterns:</p>
+        <pre class="rules"><code>{{ info.cart.rules }}</code></pre>
+      </section>
+    </div>
+  </main>
+
+  <footer class="wrap foot">
+    <div class="foot-inner">
+      <span>Smart Water Analyzer &copy; ML Decision Support System</span>
+      <a href="/">Back to Analyzer &rarr;</a>
+    </div>
+  </footer>
+</body>
+</html>
